@@ -2,7 +2,7 @@
 
 A 1-on-1 basketball game against a CPU opponent. First to 21 wins.
 
-**Play it in your browser:** _link coming soon (Vercel)_
+**Play it in your browser:** https://basketball-2d-game-web.vercel.app/
 
 The game was originally written in Java (Applets, Java 1.8) and is still fully playable as a
 Java desktop app. Because browsers no longer run Java applets, there is also an HTML5 canvas
