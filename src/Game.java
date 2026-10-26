@@ -47,6 +47,7 @@ public class Game extends GameBase {
 	double  fade;
 	boolean playerWon;
 	int     hintTimer;
+	int     stealGraceFrames;     // frames the CPU gives you space after you inbound the ball
 	long    frameCount;
 
 	// main menu / game over button
@@ -105,6 +106,7 @@ public class Game extends GameBase {
 		cpu.state = "GET_BALL";
 		cpu.contestAt = -1;
 		hintTimer = 360;
+		stealGraceFrames = 0;
 		screen = PLAYING;
 		toast("GRAB THE BALL!", 855, 560, new Color(255, 210, 63), 90, 46);
 	}
@@ -168,6 +170,7 @@ public class Game extends GameBase {
 		cpu.updatePose();
 
 		if (hintTimer > 0) hintTimer--;
+		if (stealGraceFrames > 0) stealGraceFrames--;
 		for (Iterator<Toast> it = toasts.iterator(); it.hasNext();) {
 			Toast t = it.next();
 			if (++t.t >= t.life) it.remove();
@@ -230,7 +233,10 @@ public class Game extends GameBase {
 		other.hasBall = false;
 		p.hasBall = true;
 		ball.setHeld(p);
-		if (p == cpu) cpu.newPossession();
+		if (p == cpu) {
+			cpu.newPossession();
+			stealGraceFrames = 0;      // grace only covers your inbound
+		}
 		else hintTimer = 0;
 	}
 
@@ -434,8 +440,9 @@ public class Game extends GameBase {
 			shotMeter.reset();
 			if (resetToPlayer) {
 				player.reset(420, 840, 'R');
-				cpu.reset(700, 840, 'L');
+				cpu.reset(820, 840, 'L');        // backed off so you aren't pressured right away
 				giveBall(player);
+				stealGraceFrames = 120;          // 2 seconds
 			} else {
 				cpu.reset(1290, 840, 'L');
 				player.reset(1010, 840, 'R');

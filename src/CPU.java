@@ -75,10 +75,12 @@ public class CPU extends PlayerMovement {
 		}
 		else if (state.equals("DEFEND")) {
 			// stay between the player and the right hoop, a step off him
-			go(player, player.x + 120, player.y, 8, false, 10);
+			// (right after you inbound, it gives you extra room and doesn't reach)
+			boolean grace = game.stealGraceFrames > 0;
+			go(player, player.x + (grace ? 300 : 120), player.y, 8, false, 10);
 			faceToward(player.x);
 			boolean close = Math.abs(player.x - x) < 130 && Math.abs(player.y - y) < 45;
-			if (close && !player.isShooting() && Math.random() < 0.02 && startReach(player.x)) {
+			if (close && !grace && !player.isShooting() && Math.random() < 0.02 && startReach(player.x)) {
 				game.resolveSteal(this, player);
 			}
 		}

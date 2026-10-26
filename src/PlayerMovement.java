@@ -116,7 +116,7 @@ public class PlayerMovement {
 	// ---------------------------------------------------------------- actions
 	public boolean startShot(Court.Hoop hoop) {
 		if (!canAct() || !hasBall) return false;
-		if (facing == 'L' || facing == 'R') faceToward(hoop.x);    // turn to the basket
+		faceToward(hoop.x);      // always turn to the basket (even if facing the crowd / camera)
 		action = "shoot";
 		actionT = 0;
 		return true;

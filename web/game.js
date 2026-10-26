@@ -231,8 +231,8 @@ class Actor {
 
   startShot(hoop) {
     if (!this.canAct || !this.hasBall) return false;
-    // side shots turn toward the hoop; toward/away shots keep their pose
-    if (this.facing === 'L' || this.facing === 'R') this.faceToward(hoop.x);
+    // always turn to face the hoop before shooting (even if facing the crowd / camera)
+    this.faceToward(hoop.x);
     this.action = 'shoot';
     this.actionT = 0;
     return true;
@@ -499,6 +499,7 @@ const game = {
   winner: null,             // 'player' | 'cpu' once someone reaches WIN_SCORE
   menuButton: { x: W / 2 - 150, y: 880, w: 300, h: 78 },
   hintTimer: 0,
+  stealGrace: 0,            // frames the CPU gives you space after you inbound the ball
 
   newGame() {
     this.score.player = 0;
@@ -518,6 +519,7 @@ const game = {
     cpuBrain.state = 'GET_BALL';
     cpuBrain.contestAt = -1;
     this.hintTimer = 360;
+    this.stealGrace = 0;
     this.state = 'playing';
     this.toast('GRAB THE BALL!', 855, 560, '#ffd23f', 90, 46);
   },
@@ -576,6 +578,7 @@ const game = {
     cpu.updatePose();
 
     if (this.hintTimer > 0) this.hintTimer--;
+    if (this.stealGrace > 0) this.stealGrace--;
     for (const t of this.toasts) t.t++;
     this.toasts = this.toasts.filter((t) => t.t < t.life);
     this.updatePossessionReset();
@@ -638,7 +641,7 @@ const game = {
     ball.holder = a;
     ball.shot = null;
     ball.vx = ball.vy = ball.vz = 0;
-    if (a === cpu) cpuBrain.newPossession();
+    if (a === cpu) { cpuBrain.newPossession(); this.stealGrace = 0; }   // grace only covers your inbound
     if (a === player) this.hintTimer = 0;
   },
 
@@ -721,11 +724,12 @@ const game = {
       }
       case 'DEFEND': {
         // stay between the player and the right hoop, a step off him
-        const tx = player.x + 120;
-        go(tx, player.y, 8, false, 10);
+        // (right after you inbound, it gives you extra room and doesn't reach)
+        const cushion = this.stealGrace > 0 ? 300 : 120;
+        go(player.x + cushion, player.y, 8, false, 10);
         cpu.faceToward(player.x);
         const close = Math.abs(player.x - cpu.x) < 130 && Math.abs(player.y - cpu.y) < 45;
-        if (close && player.action !== 'shoot' && Math.random() < 0.02 &&
+        if (close && this.stealGrace === 0 && player.action !== 'shoot' && Math.random() < 0.02 &&
             cpu.startReach(player.x)) {
           this.resolveSteal(cpu, player);
         }
@@ -933,8 +937,9 @@ const game = {
       meter.reset();
       if (r.possession === 'player') {
         player.reset(420, 840, 'R');
-        cpu.reset(700, 840, 'L');
+        cpu.reset(820, 840, 'L');       // backed off so you aren't pressured right away
         this.giveBall(player);
+        this.stealGrace = 120;          // 2 seconds
       } else {
         cpu.reset(1290, 840, 'L');
         player.reset(1010, 840, 'R');
