@@ -53,6 +53,13 @@ public class Game extends GameBase {
 	// main menu / game over button
 	final double buttonX = WIDTH / 2.0 - 150, buttonY = 880, buttonW = 300, buttonH = 78;
 
+	// pause button (top-left corner during a game) and the pause screen's buttons
+	final double pauseX = 28, pauseY = 22, pauseW = 214, pauseH = 58;
+	final String[] pauseMenuIds    = { "resume", "restart", "menu" };
+	final String[] pauseMenuLabels = { "RESUME", "RESTART", "MAIN MENU" };
+	final double pauseMenuX = WIDTH / 2.0 - 190, pauseMenuW = 380, pauseMenuH = 78;
+	final double[] pauseMenuY = { 480, 580, 680 };
+
 
 	public static void main(String[] args) {
 		GameBase.launch(new GameBase.Factory() {
@@ -144,11 +151,35 @@ public class Game extends GameBase {
 		if (screen == PLAYING) screen = PAUSED;
 	}
 
+	private static boolean hit(double x, double y, double bx, double by, double bw, double bh) {
+		return x >= bx && x <= bx + bw && y >= by && y <= by + bh;
+	}
+
+	/** Which clickable thing (if any) is under (x, y) on the current screen. */
+	String buttonAt(double x, double y) {
+		if ((screen == MENU || screen == GAME_OVER) && hit(x, y, buttonX, buttonY, buttonW, buttonH)) return "play";
+		if (screen == PLAYING && hit(x, y, pauseX, pauseY, pauseW, pauseH)) return "pause";
+		if (screen == PAUSED) {
+			for (int i = 0; i < pauseMenuIds.length; i++) {
+				if (hit(x, y, pauseMenuX, pauseMenuY[i], pauseMenuW, pauseMenuH)) return pauseMenuIds[i];
+			}
+		}
+		return null;
+	}
+
+	@Override
+	public boolean isClickable(double x, double y) {
+		return buttonAt(x, y) != null;
+	}
+
 	@Override
 	public void onClick(double x, double y) {
-		boolean inButton = x >= buttonX && x <= buttonX + buttonW && y >= buttonY && y <= buttonY + buttonH;
-		if ((screen == MENU || screen == GAME_OVER) && inButton) newGame();
-		else if (screen == PAUSED) screen = PLAYING;
+		String id = buttonAt(x, y);
+		if (id == null) return;
+		if (id.equals("play") || id.equals("restart")) newGame();
+		else if (id.equals("pause"))  screen = PAUSED;
+		else if (id.equals("resume")) screen = PLAYING;
+		else if (id.equals("menu"))   screen = MENU;
 	}
 
 
@@ -540,8 +571,32 @@ public class Game extends GameBase {
 			g.setColor(new Color(5, 8, 18, (int) (255 * fade)));
 			g.fillRect(0, 0, WIDTH, HEIGHT);
 		}
+		if (screen == PLAYING)   drawPauseButton(g);
 		if (screen == PAUSED)    drawPause(g);
 		if (screen == GAME_OVER) drawGameOver(g);
+	}
+
+
+	private void drawPauseButton(Graphics2D g) {
+		RoundRectangle2D pill = new RoundRectangle2D.Double(pauseX, pauseY, pauseW, pauseH, pauseH, pauseH);
+		g.setColor(new Color(8, 12, 28, 200));
+		g.fill(pill);
+		g.setColor(new Color(255, 255, 255, 64));
+		g.setStroke(new BasicStroke(2));
+		g.draw(pill);
+		// pause icon (two bars)
+		g.setColor(Color.WHITE);
+		int iy = (int) (pauseY + pauseH / 2 - 12);
+		g.fillRect((int) pauseX + 24, iy, 7, 24);
+		g.fillRect((int) pauseX + 37, iy, 7, 24);
+		g.setFont(new Font("SansSerif", Font.BOLD, 24));
+		int ty = (int) Math.round(pauseY + pauseH / 2 + (g.getFontMetrics().getAscent() - g.getFontMetrics().getDescent()) / 2.0);
+		g.drawString("PAUSE", (int) pauseX + 58, ty);
+		g.setFont(new Font("SansSerif", Font.BOLD, 14));
+		g.setColor(new Color(143, 154, 181));
+		ty = (int) Math.round(pauseY + pauseH / 2 + (g.getFontMetrics().getAscent() - g.getFontMetrics().getDescent()) / 2.0);
+		int escW = g.getFontMetrics().stringWidth("ESC");
+		g.drawString("ESC", (int) (pauseX + pauseW - 24 - escW), ty);      // right-aligned
 	}
 
 
@@ -614,7 +669,7 @@ public class Game extends GameBase {
 			{ "Space",    "Jump to block a shot" },
 			{ "M",        "Reach for a steal" },
 			{ "P",        "Pick up / drop the ball" },
-			{ "Esc",      "Pause" },
+			{ "Esc",      "Pause (or the button in the top-left)" },
 		};
 		Font keyFont  = new Font("SansSerif", Font.BOLD, 24);
 		Font descFont = new Font("SansSerif", Font.PLAIN, 25);
@@ -658,12 +713,25 @@ public class Game extends GameBase {
 		g.setColor(new Color(6, 9, 22, 180));
 		g.fillRect(0, 0, WIDTH, HEIGHT);
 		g.setFont(new Font("SansSerif", Font.BOLD, 90));
-		ScoreBoard.drawCentered(g, "PAUSED", WIDTH / 2.0, 420, Color.WHITE);
-		g.setFont(new Font("SansSerif", Font.BOLD, 30));
-		Color c = new Color(207, 216, 255);
-		ScoreBoard.drawCentered(g, "Esc / Enter - resume", WIDTH / 2.0, 530, c);
-		ScoreBoard.drawCentered(g, "R - restart", WIDTH / 2.0, 580, c);
-		ScoreBoard.drawCentered(g, "Q - main menu", WIDTH / 2.0, 630, c);
+		ScoreBoard.drawCentered(g, "PAUSED", WIDTH / 2.0, 380, Color.WHITE);
+
+		for (int i = 0; i < pauseMenuIds.length; i++) {
+			boolean primary = i == 0;
+			RoundRectangle2D pill = new RoundRectangle2D.Double(pauseMenuX, pauseMenuY[i], pauseMenuW, pauseMenuH, pauseMenuH, pauseMenuH);
+			g.setColor(primary ? new Color(255, 122, 26) : new Color(255, 255, 255, 26));
+			g.fill(pill);
+			if (!primary) {
+				g.setColor(new Color(255, 255, 255, 77));
+				g.setStroke(new BasicStroke(2));
+				g.draw(pill);
+			}
+			g.setFont(new Font("SansSerif", Font.BOLD, 34));
+			ScoreBoard.drawCentered(g, pauseMenuLabels[i], pauseMenuX + pauseMenuW / 2, pauseMenuY[i] + pauseMenuH / 2,
+					primary ? new Color(26, 13, 2) : Color.WHITE);
+		}
+		g.setFont(new Font("SansSerif", Font.BOLD, 22));
+		ScoreBoard.drawCentered(g, "Keys:  Esc resume  \u00b7  R restart  \u00b7  Q main menu", WIDTH / 2.0, 820,
+				new Color(207, 216, 255));
 	}
 
 

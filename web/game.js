@@ -99,13 +99,21 @@ document.addEventListener('visibilitychange', () => {
 function wasPressed(...codes) { return codes.some((c) => pressedThisFrame[c]); }
 function isDown(...codes) { return codes.some((c) => keys[c]); }
 
+function toGameCoords(e) {
+  const r = canvas.getBoundingClientRect();
+  return { x: (e.clientX - r.left) * (W / r.width), y: (e.clientY - r.top) * (H / r.height) };
+}
+// pointer cursor over anything clickable
+function updateCursor(p) {
+  canvas.style.cursor = game.buttonAt(p.x, p.y) ? 'pointer' : 'default';
+}
 canvas.addEventListener('pointerdown', (e) => {
   canvas.focus();
-  const r = canvas.getBoundingClientRect();
-  const x = (e.clientX - r.left) * (W / r.width);
-  const y = (e.clientY - r.top) * (H / r.height);
-  game.click(x, y);
+  const p = toGameCoords(e);
+  game.click(p.x, p.y);
+  updateCursor(p);      // the screen just changed under the mouse
 });
+canvas.addEventListener('pointermove', (e) => updateCursor(toGameCoords(e)));
 
 // ------------------------------------------------------------------ assets
 const images = {};
@@ -498,6 +506,12 @@ const game = {
   fade: 0,
   winner: null,             // 'player' | 'cpu' once someone reaches WIN_SCORE
   menuButton: { x: W / 2 - 150, y: 880, w: 300, h: 78 },
+  pauseButton: { x: 28, y: 22, w: 214, h: 58 },          // top-left corner during a game
+  pauseMenu: [                                           // buttons on the pause screen
+    { id: 'resume', label: 'RESUME', x: W / 2 - 190, y: 480, w: 380, h: 78 },
+    { id: 'restart', label: 'RESTART', x: W / 2 - 190, y: 580, w: 380, h: 78 },
+    { id: 'menu', label: 'MAIN MENU', x: W / 2 - 190, y: 680, w: 380, h: 78 },
+  ],
   hintTimer: 0,
   stealGrace: 0,            // frames the CPU gives you space after you inbound the ball
 
@@ -526,12 +540,26 @@ const game = {
 
   pause() { if (this.state === 'playing') this.state = 'paused'; },
 
+  /** Which clickable thing (if any) is under (x, y) on the current screen. */
+  buttonAt(x, y) {
+    const hit = (b) => x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h;
+    if ((this.state === 'menu' || this.state === 'gameover') && hit(this.menuButton)) return 'play';
+    if (this.state === 'playing' && hit(this.pauseButton)) return 'pause';
+    if (this.state === 'paused') {
+      const b = this.pauseMenu.find(hit);
+      if (b) return b.id;
+    }
+    return null;
+  },
+
   click(x, y) {
-    const b = this.menuButton;
-    const inButton = x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h;
-    if (this.state === 'menu' && inButton) this.newGame();
-    else if (this.state === 'paused') this.state = 'playing';
-    else if (this.state === 'gameover' && inButton) this.newGame();
+    switch (this.buttonAt(x, y)) {
+      case 'play': this.newGame(); break;
+      case 'pause': this.pause(); break;
+      case 'resume': this.state = 'playing'; break;
+      case 'restart': this.newGame(); break;
+      case 'menu': this.state = 'menu'; break;
+    }
   },
 
   toast(text, x, y, color = '#fff', life = 70, size = 40) {
@@ -1022,8 +1050,33 @@ const game = {
       ctx.fillStyle = `rgba(5,8,18,${this.fade})`;
       ctx.fillRect(0, 0, W, H);
     }
+    if (this.state === 'playing') this.renderPauseButton();
     if (this.state === 'paused') this.renderPause();
     if (this.state === 'gameover') this.renderGameOver();
+  },
+
+  renderPauseButton() {
+    const b = this.pauseButton;
+    ctx.save();
+    ctx.fillStyle = 'rgba(8,12,28,0.78)';
+    roundRect(b.x, b.y, b.w, b.h, b.h / 2); ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+    ctx.lineWidth = 2;
+    roundRect(b.x, b.y, b.w, b.h, b.h / 2); ctx.stroke();
+    // pause icon (two bars)
+    ctx.fillStyle = '#ffffff';
+    const iy = b.y + b.h / 2 - 12;
+    ctx.fillRect(b.x + 24, iy, 7, 24);
+    ctx.fillRect(b.x + 37, iy, 7, 24);
+    ctx.font = '800 24px "Rubik", sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('PAUSE', b.x + 58, b.y + b.h / 2 + 1);
+    ctx.font = '700 14px "Rubik", sans-serif';
+    ctx.fillStyle = '#8f9ab5';
+    ctx.textAlign = 'right';
+    ctx.fillText('ESC', b.x + b.w - 24, b.y + b.h / 2 + 1);
+    ctx.restore();
   },
 
   renderScoreboard() {
@@ -1163,7 +1216,7 @@ const game = {
       ['Space', 'Jump to block a shot'],
       ['M', 'Reach for a steal'],
       ['P', 'Pick up / drop the ball'],
-      ['Esc', 'Pause'],
+      ['Esc', 'Pause (or the button in the top-left)'],
     ];
     ctx.textBaseline = 'middle';
     rows.forEach(([k, d], i) => {
@@ -1226,12 +1279,23 @@ const game = {
     ctx.textBaseline = 'middle';
     ctx.font = '90px "Bungee", "Rubik", sans-serif';
     ctx.fillStyle = '#fff';
-    ctx.fillText('PAUSED', W / 2, 420);
-    ctx.font = '700 30px "Rubik", sans-serif';
+    ctx.fillText('PAUSED', W / 2, 380);
+    for (const b of this.pauseMenu) {
+      const primary = b.id === 'resume';
+      ctx.fillStyle = primary ? '#ff7a1a' : 'rgba(255,255,255,0.1)';
+      roundRect(b.x, b.y, b.w, b.h, b.h / 2); ctx.fill();
+      if (!primary) {
+        ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+        ctx.lineWidth = 2;
+        roundRect(b.x, b.y, b.w, b.h, b.h / 2); ctx.stroke();
+      }
+      ctx.font = '34px "Bungee", "Rubik", sans-serif';
+      ctx.fillStyle = primary ? '#1a0d02' : '#ffffff';
+      ctx.fillText(b.label, b.x + b.w / 2, b.y + b.h / 2 + 2);
+    }
+    ctx.font = '700 22px "Rubik", sans-serif';
     ctx.fillStyle = '#cfd8ff';
-    ctx.fillText('Esc / Enter - resume', W / 2, 530);
-    ctx.fillText('R - restart', W / 2, 580);
-    ctx.fillText('Q - main menu', W / 2, 630);
+    ctx.fillText('Keys:  Esc resume  ·  R restart  ·  Q main menu', W / 2, 820);
     ctx.restore();
   },
 

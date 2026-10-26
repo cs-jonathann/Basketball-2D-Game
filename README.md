@@ -16,7 +16,7 @@ version of the same game in [`web/`](web/) that uses the same art and mechanics.
   goes for steals and positions for rebounds
 - Blocks, steals, knock-loose plays and rebounds
 - 2 and 3 point scoring, scores shown on the arena jumbotron
-- Main menu with controls, pause menu and game over screen
+- Main menu with controls, on-screen pause button and pause menu, game over screen
 
 ## Controls
 | Key | Action |
@@ -27,7 +27,7 @@ version of the same game in [`web/`](web/) that uses the same art and mechanics.
 | Space | Jump (block) |
 | M | Reach / steal |
 | P | Pick up / drop the ball |
-| Esc | Pause |
+| Esc / Pause button (top-left) | Pause (resume, restart or go to the main menu) |
 
 You attack the **right** hoop; the CPU attacks the **left** hoop.
 

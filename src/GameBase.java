@@ -1,4 +1,5 @@
 import java.awt.Color;
+import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
@@ -58,16 +59,25 @@ public abstract class GameBase extends JPanel implements KeyListener, ActionList
 		super.setBackground(Color.BLACK);
 		super.setFocusable(true);
 		super.addKeyListener(this);
-		super.addMouseListener(new MouseAdapter() {
+		MouseAdapter mouse = new MouseAdapter() {
 			@Override
 			public void mousePressed(MouseEvent e) {
 				requestFocusInWindow();
 				Rectangle v = viewport();
-				double x = (e.getX() - v.x) * (double) WIDTH  / v.width;
-				double y = (e.getY() - v.y) * (double) HEIGHT / v.height;
-				onClick(x, y);
+				onClick((e.getX() - v.x) * (double) WIDTH / v.width, (e.getY() - v.y) * (double) HEIGHT / v.height);
+				mouseMoved(e);      // the screen just changed under the mouse
 			}
-		});
+
+			// hand cursor over anything clickable
+			@Override
+			public void mouseMoved(MouseEvent e) {
+				Rectangle v = viewport();
+				boolean hot = isClickable((e.getX() - v.x) * (double) WIDTH / v.width, (e.getY() - v.y) * (double) HEIGHT / v.height);
+				setCursor(Cursor.getPredefinedCursor(hot ? Cursor.HAND_CURSOR : Cursor.DEFAULT_CURSOR));
+			}
+		};
+		super.addMouseListener(mouse);
+		super.addMouseMotionListener(mouse);
 		// clicking away from the window would otherwise leave keys stuck down
 		super.addFocusListener(new FocusAdapter() {
 			@Override
@@ -93,6 +103,7 @@ public abstract class GameBase extends JPanel implements KeyListener, ActionList
 	public abstract void update();
 	public abstract void render(Graphics2D g);
 	public void onClick(double x, double y) {}
+	public boolean isClickable(double x, double y) { return false; }
 	public void onFocusLost() {}
 
 
