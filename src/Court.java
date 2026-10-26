@@ -1,119 +1,82 @@
+/**
+ * Court geometry in screen coordinates (the game is laid out on a 1710 x 1080 screen).
+ *
+ * The old version used ten 1-pixel "walls" checked against the full 250x250 sprite box,
+ * which let players get stuck in corners, slip past walls and end up off screen.
+ * Now each player's feet are simply kept inside a trapezoid that follows the floor,
+ * so they slide smoothly along the edges and can never leave the court.
+ */
 public class Court {
 
-	// *If I Have time, find a more efficient way to create the out of bounds line*
-	OutOfBoundsLine[] bounds = {// x, y,   w,   h
-			new OutOfBoundsLine(209, 600, 1, 100),			    // leftWall1
-			new OutOfBoundsLine(170, 700, 1, 100),				// leftWall2
-			new OutOfBoundsLine(120, 800, 1, 100),				// leftWall3
-			new OutOfBoundsLine(80, 900, 1, 100),				// leftWall4
-			new OutOfBoundsLine(1500, 600, 1, 100),			    // rightWall1
-			new OutOfBoundsLine(1540, 700, 1, 100),				// rightWall2
-			new OutOfBoundsLine(1590, 800, 1, 100),				// rightWall3
-			new OutOfBoundsLine(1630, 900, 1, 100), 			// rightWall4
-			new OutOfBoundsLine(222, 400, 1200, 1),				// topWall
-			new OutOfBoundsLine(75, 1000, 1570, 1),			    // bottomWall
-		};
+	public static final double FLOOR_TOP    = 650;
+	public static final double FLOOR_BOTTOM = 1000;
+
+	// Player attacks the RIGHT hoop, CPU attacks the LEFT hoop.
+	//                                       rimX  rimY floorY boardX dir threeX
+	public static final Hoop RIGHT = new Hoop(1492, 472, 800, 1550,  1, 1098);
+	public static final Hoop LEFT  = new Hoop( 221, 472, 800,  164, -1,  612);
 
 
-	Rim[] rims = {
-			new Rim(1461, 465, 1, 27),	 // front right rim
-			new Rim(250, 463, 1, 27)	 // front left rim
-	};
+	/** Left edge of the floor at depth y. */
+	public static double leftAt(double y) {
+		return lerp(240, 75, (y - FLOOR_TOP) / (FLOOR_BOTTOM - FLOOR_TOP));
+	}
 
+	/** Right edge of the floor at depth y. */
+	public static double rightAt(double y) {
+		return lerp(1470, 1635, (y - FLOOR_TOP) / (FLOOR_BOTTOM - FLOOR_TOP));
+	}
 
-	Line[] backboardLines = {
-		    new Line(1596, 525, 1550, 480), // right backboard lower side
-		    new Line(1596, 375, 1596, 525),	// right backboard right side
-		    new Line(1495, 335, 1596, 375), // right backboard top side
-		    new Line(117, 520, 163, 485)  , // left  backboard lower side (shortened to match right)
-		    new Line(117, 381, 117, 520)  , // left  backboard left side
-		    new Line(214, 338, 117, 381)  , // left  backboard top side
-		};
+	public static double clampY(double y, double margin) {
+		return clamp(y, FLOOR_TOP + margin, FLOOR_BOTTOM - margin);
+	}
 
-
-	Line[] threePointLines = {
-			new Line(612, 642, 612, 987)  ,   // three point line on left side of the court
-			new Line(1098, 642, 1098, 987),   // three point line on rights side of the court
-	};
-
-
-	Rect rightBackboardInterior = new Rect(1537, 400, 45, 50);
-	Rect leftBackboardInterior  = new Rect(131,  400, 45, 50);
-
-
-
-	// backboard interior rectangles always active so bank shots work correctly
-	public void handleBackboardCollisions(Ball ball) {
-
-		if(ball.rect.overlaps(rightBackboardInterior)) {
-			ball.x         = (int)rightBackboardInterior.x - 51;
-		    ball.velocityX = -ball.velocityX * 0.2;
-		    ball.velocityY =  ball.velocityY * 0.7;
-		}
-
-		if(ball.rect.overlaps(leftBackboardInterior)) {
-			ball.x         = (int)(leftBackboardInterior.x + leftBackboardInterior.w) + 1;
-		    ball.velocityX = -ball.velocityX * 0.2;
-		    ball.velocityY =  ball.velocityY * 0.7;
-		}
+	/** Call after clampY. */
+	public static double clampX(double x, double y, double margin) {
+		return clamp(x, leftAt(y) + margin, rightAt(y) - margin);
 	}
 
 
+	// ------------------------------------------------------------ small math helpers
+	public static double lerp(double a, double b, double t) {
+		return a + (b - a) * t;
+	}
 
-	// Handles ball bouncing off rims (deflects ball when it overlaps a rim)
-	public void handleRimCollisions(Ball ball, int ballCenterY) {
+	public static double clamp(double v, double lo, double hi) {
+		return v < lo ? lo : (v > hi ? hi : v);
+	}
 
-	    for(int i = 0; i < rims.length; i++) {
-	        if(ball.rect.overlaps(rims[i])) {
+	public static double rand(double lo, double hi) {
+		return lo + Math.random() * (hi - lo);
+	}
 
-	            // horizontal rims only bounce if ball CENTER hasn't crossed the rim yet.
-	            // this allows the ball to pass through once the center is past the rim level.
-	            if(rims[i].w > rims[i].h) {
+	public static int sign(double v) {
+		return v < 0 ? -1 : 1;
+	}
 
-	                if(ball.velocityY > 0 && ballCenterY < rims[i].y) {
 
-	                    // approaching from above, bounce off top of rim
-	                    ball.y = (int)rims[i].y - 50;
-	                    ball.velocityY = -ball.velocityY * 0.7;
-	                    ball.velocityX =  ball.velocityX * 0.7;
-	                }
-	                else if(ball.velocityY < 0 && ballCenterY > rims[i].y) {
+	/** One basket: rim position, backboard and the three point line for that end. */
+	public static class Hoop {
+		final double x;        // rim center
+		final double rimY;     // rim height on screen
+		final double floorY;   // depth of the floor under the rim
+		final double boardX;   // backboard plane
+		final int    dir;      // +1 right hoop, -1 left hoop
+		final double threeX;   // shots from beyond this x are worth 3
+		final double rimZ;     // rim height above the floor
 
-	                    // approaching from below, bounce off bottom of rim
-	                    ball.y = (int)(rims[i].y + rims[i].h);
-	                    ball.velocityY = -ball.velocityY * 0.7;
-	                    ball.velocityX =  ball.velocityX * 0.7;
-	                }
-	            }
+		Hoop(double x, double rimY, double floorY, double boardX, int dir, double threeX) {
+			this.x      = x;
+			this.rimY   = rimY;
+			this.floorY = floorY;
+			this.boardX = boardX;
+			this.dir    = dir;
+			this.threeX = threeX;
+			this.rimZ   = floorY - rimY;
+		}
 
-	            // front rims block from either side
-	            else {
-	                boolean isRightRim = rims[i].x > 1000;
-	                boolean isLeftRim  = rims[i].x < 300;
-
-	                if(isRightRim) {
-
-	                    if(ball.velocityX > 0)
-	                        ball.x = (int)rims[i].x - 50;           // push ball left of rim
-
-	                    else
-	                        ball.x = (int)(rims[i].x + rims[i].w);  // push ball right of rim
-	                        ball.velocityX = -ball.velocityX * 0.7;
-	                        ball.velocityY =  ball.velocityY * 0.7;
-	                }
-
-	                else if(isLeftRim) {
-
-	                    if(ball.velocityX < 0)
-	                        ball.x = (int)(rims[i].x + rims[i].w);  // push ball right of rim
-
-	                    else
-	                        ball.x = (int)rims[i].x - 50;           // push ball left of rim
-	                        ball.velocityX = -ball.velocityX * 0.7;
-	                        ball.velocityY =  ball.velocityY * 0.7;
-	                }
-	            }
-	        }
-	    }
+		boolean isThree(double shooterX) {
+			return dir > 0 ? shooterX < threeX : shooterX > threeX;
+		}
 	}
 }

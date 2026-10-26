@@ -1,666 +1,695 @@
-import java.awt.*;
-import java.awt.event.*;
+import java.awt.BasicStroke;
+import java.awt.Color;
+import java.awt.Font;
+import java.awt.GradientPaint;
+import java.awt.Graphics2D;
+import java.awt.event.KeyEvent;
+import java.awt.geom.RoundRectangle2D;
+import java.awt.image.BufferedImage;
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
 
+/**
+ * 2D Basketball - 1 on 1 against the CPU, first to 21.
+ *
+ * Run this class (it has a main method). Controls are shown on the main menu.
+ */
+@SuppressWarnings("serial")
 public class Game extends GameBase {
-	
-	Image courtImage = Toolkit.getDefaultToolkit().getImage("images/basketballCourtForGame.jpg");	
 
-	PlayerMovement player 	  = new PlayerMovement();
-	CPU			   cpu    	  = new CPU();
-	ScoreBoard     scoreBoard = new ScoreBoard();
-	Ball		   ball       = new Ball();
-	Court		   court      = new Court();
-	ShotMeter      shotMeter  = new ShotMeter();
-	
-	int walkSpeed 	 = 8;   // 8 pixels every frame
-	int runSpeed  	 = 14;
-	int dribbleSpeed = 10;
-	
-	int savedShootingRow;
-	int savedShootingX;
-	
-	boolean savedFacingLeft;
-	boolean pWasPressed   		 = false;		// needed to detect when P was pressed to pick up the ball.
-	boolean oWasPressed    		 = false;		// needed to detect when O was pressed to shoot the ball.
-	boolean mWasPressed          = false;       // needed to detect when M was pressed to reach.
-	boolean playerWasInFlight    = false;
-	boolean cpuWasInFlight 		 = false;
+	private static final long serialVersionUID = 1L;
 
-	
-	// players prev location
-	int playerPrevX;
-	int playerPrevY;
-	int cpuPrevX;
-	int cpuPrevY;
-	
-	
-	// variable which controls the steal button to register once every 3 seconds
-	int stealCoolDownFrames = 0;
-	
-	// offset for the ball to follow the hands while shooting the ball in each frame.
-	int[] handOffsetX = { 160, 165, 170, 175, 180 };   // adjust these
-	int[] handOffsetY = {  80,  60,  40,  20,  0 };    // adjust these
-	
-	Rect playerRect;
-	Rect cpuRect;
-	
+	static final int WALK_SPEED    = 8;
+	static final int RUN_SPEED     = 14;
+	static final int DRIBBLE_SPEED = 10;
+	static final int RIM_RADIUS    = 30;
 
-	
-	public void inGameLoop() {
-			
-		// getting players previous x and y from the methods in playerMovement
-		// need to save before any movement is done
-		
-		playerPrevX = player.getX();
-		playerPrevY = player.getY();	
-		
-		
-		
-		
-		// using a rectangle for the ball to check if a player is near it to be able to pick it up
-		ball.rect   = new Rect(ball.x, ball.y, 50, 50);
+	// game screens
+	static final int LOADING = 0, MENU = 1, PLAYING = 2, PAUSED = 3, GAME_OVER = 4;
+	int screen = LOADING;
+	String loadError;
+
+	BufferedImage courtImage;
+
+	final PlayerMovement player = new PlayerMovement("YOU", SpriteData.P1_WALK, SpriteData.P1_UPDOWN,
+			SpriteData.P1_DRIBBLE, SpriteData.P1_SHOOT, SpriteData.P1_IDLE, SpriteData.P1_JUMP, SpriteData.P1_REACH);
+	final CPU        cpu        = new CPU();
+	final Ball       ball       = new Ball();
+	final ShotMeter  shotMeter  = new ShotMeter();
+	final ScoreBoard scoreBoard = new ScoreBoard();
+
+	final List<Toast> toasts = new ArrayList<Toast>();
+
+	// after a basket: short celebration, fade out, other team takes the ball
+	int     resetTimer = -1;
+	boolean resetToPlayer;
+	double  fade;
+	boolean playerWon;
+	int     hintTimer;
+	long    frameCount;
+
+	// main menu / game over button
+	final double buttonX = WIDTH / 2.0 - 150, buttonY = 880, buttonW = 300, buttonH = 78;
 
 
-		// Player Movements
-		
-		if (pressing[_A] && player.ballInHand)	player.dribbleLT(dribbleSpeed);
-		else if (pressing[_A] && pressing[_C])  player.runLT(runSpeed);
-		else if (pressing[_A])             		player.moveLT(walkSpeed);
-
-		if (pressing[_D] && player.ballInHand)	player.dribbleRT(dribbleSpeed);
-		else if (pressing[_D] && pressing[_C])  player.runRT(runSpeed);
-		else if (pressing[_D])             		player.moveRT(walkSpeed);
-
-		if (pressing[_W] && player.ballInHand)	player.dribbleUP(dribbleSpeed);
-		else if (pressing[_W] && pressing[_C])  player.runUP(runSpeed);
-		else if (pressing[_W])             		player.moveUP(walkSpeed);
-		
-		if (pressing[_S] && player.ballInHand)	player.dribbleDN(dribbleSpeed);
-		else if (pressing[_S] && pressing[_C])  player.runDN(runSpeed);
-		else if (pressing[_S])             		player.moveDN(walkSpeed);
-		
-		
-		// calling the shot meter and passing the shot button with the player object
-		shotMeter.update(pressing[_O], player);
-
-		// when player presses O and shot starts, fire the shooting animation
-		if(pressing[_O] && !shotMeter.oWasPressed && player.ballInHand && !shotMeter.isChargingShot) {
-		    savedShootingRow = player.lastDribblingSpriteSheetRow;
-		    savedFacingLeft  = player.facingLeft;
-		    savedShootingX   = player.getX();
-		    
-		    // trigger animation
-		    if     (savedShootingRow == 840)  player.shootingUP();
-		    else if(savedShootingRow == 560)  player.shootingDN();
-		    else if(player.facingLeft)        player.shootingLT();
-		    else                              player.shootingRT();
-		}
-		
-					
-		// Jumping + Physics
-
-		if (pressing[SPACE])  player.jump();
-							  player.move();
-								 cpu.move();
-			    
-		
-		// Build playerRect with current position AFTER all player movement this frame
-		playerRect = new Rect(player.getX(), player.getY(), player.lrPlayerWidth, player.lrPlayerHeight);
-		
-		
-
-
-	    // Using this to close the applet
-		if(pressing[ESC])  System.exit(0);
-			
-		
-		
-		if(player.ballInFlight || cpu.ballInFlight) {
-			
-			if(!playerWasInFlight && !cpuWasInFlight) {
-				setShotVelocity();
+	public static void main(String[] args) {
+		GameBase.launch(new GameBase.Factory() {
+			@Override
+			public GameBase create() {
+				return new Game();
 			}
-				
-							
-			// player blocking cpu logic
-			if(cpu.ballInFlight && player.physics == true && !ball.blocked && playerRect.overlaps(ball.rect)) {
-					ball.blocked   = true;
-					ball.velocityX = -ball.velocityX * 0.7;
-	                ball.velocityY =  ball.velocityY * 0.7;
-			}
-
-			
-			// move the ball every frame so it aligns with the hands
-			ball.update();
-
-			
-			// update ball.rect to current position so all collision checks below are accurate
-			ball.rect = new Rect(ball.x, ball.y, 50, 50);
-
-			// ball center is used for rim zone check and scoring detection
-			int ballCenterX = ball.x + 25;
-			int ballCenterY = ball.y + 25;
+		}, "2D Basketball");
+	}
 
 
-			court.handleBackboardCollisions(ball);
-
-			checkScoring(ballCenterX, ballCenterY);
-
-			court.handleRimCollisions(ball, ballCenterY);
+	/** Runs on a background thread while the window shows "Loading...". */
+	@Override
+	public void loadAssets() {
+		try {
+			courtImage = SpriteSheet.resize(SpriteSheet.loadImage("basketballCourtForGame.jpg"), WIDTH, HEIGHT);
+			SpriteSheet[] sheets = {
+				SpriteData.P1_WALK, SpriteData.P1_UPDOWN, SpriteData.P1_DRIBBLE, SpriteData.P1_SHOOT,
+				SpriteData.P1_IDLE, SpriteData.P1_JUMP, SpriteData.P1_REACH,
+				SpriteData.P2_WALK, SpriteData.P2_UPDOWN, SpriteData.P2_DRIBBLE, SpriteData.P2_SHOOT,
+				SpriteData.P2_IDLE, SpriteData.P2_JUMP, SpriteData.P2_REACH,
+			};
+			for (SpriteSheet s : sheets) s.load();
+			ball.load();
+		} catch (Exception e) {
+			e.printStackTrace();
+			loadError = String.valueOf(e.getMessage());
 		}
-		
-		
-		// calls the method to see if the ball hit any of the out of bound invisible walls
-		endFlightOnBoundary();
+	}
 
-		playerWasInFlight    = player.ballInFlight;
-		cpuWasInFlight       = cpu.ballInFlight;
-			
-				  
+	/** Back on the Swing thread once loading has finished. */
+	@Override
+	public void onLoaded() {
+		if (loadError == null) screen = MENU;
+	}
 
-		// always keeps the ball inbounds at a reachable position if missed shot or knocked loose out of bounds
-		if(!player.ballInFlight && !cpu.ballInFlight && !player.ballInHand && !cpu.ballInHand) {
-		    ball.clampToCourt();	// clampToCourt pushes the ball back in bounds
+
+	void newGame() {
+		scoreBoard.reset();
+		toasts.clear();
+		resetTimer = -1;
+		fade = 0;
+		shotMeter.reset();
+		// opening tip: ball at center court, first one to grab it gets it
+		player.reset(560, 900, 'R');
+		cpu.reset(1150, 700, 'L');
+		ball.setLoose();
+		ball.shot = null;
+		ball.x = 855;  ball.y = 800;  ball.z = 120;
+		ball.vx = 0;   ball.vy = 0;   ball.vz = 0;
+		cpu.state = "GET_BALL";
+		cpu.contestAt = -1;
+		hintTimer = 360;
+		screen = PLAYING;
+		toast("GRAB THE BALL!", 855, 560, new Color(255, 210, 63), 90, 46);
+	}
+
+
+	// ================================================================= update
+	@Override
+	public void update() {
+		frameCount++;
+		switch (screen) {
+			case MENU:
+				if (wasPressed(KeyEvent.VK_ENTER, KeyEvent.VK_SPACE)) newGame();
+				break;
+			case PAUSED:
+				if (wasPressed(KeyEvent.VK_ESCAPE, KeyEvent.VK_ENTER)) screen = PLAYING;
+				else if (wasPressed(KeyEvent.VK_R)) newGame();
+				else if (wasPressed(KeyEvent.VK_Q)) screen = MENU;
+				break;
+			case GAME_OVER:
+				if (wasPressed(KeyEvent.VK_ENTER, KeyEvent.VK_SPACE)) newGame();
+				else if (wasPressed(KeyEvent.VK_ESCAPE, KeyEvent.VK_Q)) screen = MENU;
+				else updateWorld(false);
+				break;
+			case PLAYING:
+				if (wasPressed(KeyEvent.VK_ESCAPE)) { screen = PAUSED; break; }
+				updateWorld(true);
+				break;
+			default:
+				break;
 		}
-		
-		
-		
-		
+	}
 
-		
-		
-			
-			handleBallPickupDrop();
-			playerAttemptSteal();
-			
-			// if the cpu is in defend mode and the ball becomes loose on the ground, make the cpu chase and pick up the ball
-			if(cpu.state.equals("DEFEND") && !player.ballInHand && !player.ballInFlight && !cpu.ballInHand) {
+	@Override
+	public void onFocusLost() {
+		if (screen == PLAYING) screen = PAUSED;
+	}
+
+	@Override
+	public void onClick(double x, double y) {
+		boolean inButton = x >= buttonX && x <= buttonX + buttonW && y >= buttonY && y <= buttonY + buttonH;
+		if ((screen == MENU || screen == GAME_OVER) && inButton) newGame();
+		else if (screen == PAUSED) screen = PLAYING;
+	}
+
+
+	void updateWorld(boolean allowInput) {
+		boolean inputLocked = !allowInput || resetTimer >= 0;
+		player.prevX = player.x;  player.prevY = player.y;
+		cpu.prevX = cpu.x;        cpu.prevY = cpu.y;
+
+		if (!inputLocked) updatePlayerInput();
+		else shotMeter.update(false);
+		if (resetTimer < 0 && screen == PLAYING) cpu.think(this);
+
+		if (player.update()) launchShot(player);
+		if (cpu.update())    launchShot(cpu);
+
+		separatePlayers();
+		updateBall();
+		player.updatePose();
+		cpu.updatePose();
+
+		if (hintTimer > 0) hintTimer--;
+		for (Iterator<Toast> it = toasts.iterator(); it.hasNext();) {
+			Toast t = it.next();
+			if (++t.t >= t.life) it.remove();
+		}
+		updatePossessionReset();
+	}
+
+
+	void updatePlayerInput() {
+		boolean left  = isDown(KeyEvent.VK_A, KeyEvent.VK_LEFT);
+		boolean right = isDown(KeyEvent.VK_D, KeyEvent.VK_RIGHT);
+		boolean up    = isDown(KeyEvent.VK_W, KeyEvent.VK_UP);
+		boolean down  = isDown(KeyEvent.VK_S, KeyEvent.VK_DOWN);
+		int dx = (right ? 1 : 0) - (left ? 1 : 0);
+		int dy = (down ? 1 : 0) - (up ? 1 : 0);
+		boolean run = isDown(KeyEvent.VK_C, KeyEvent.VK_SHIFT);
+
+		double speed = player.hasBall ? DRIBBLE_SPEED : (run ? RUN_SPEED : WALK_SPEED);
+		player.move(dx, dy, speed, run && !player.hasBall);
+
+		// shoot: hold O, release in the green
+		if (wasPressed(KeyEvent.VK_O) && player.hasBall && player.startShot(Court.RIGHT)) shotMeter.start();
+		shotMeter.update(isDown(KeyEvent.VK_O));
+
+		// jump / block
+		if (wasPressed(KeyEvent.VK_SPACE)) player.startJump();
+
+		// reach / steal
+		if (wasPressed(KeyEvent.VK_M) && player.startReach(cpu.x)) {
+			boolean close = Math.abs(player.x - cpu.x) < 140 && Math.abs(player.y - cpu.y) < 50;
+			if (close && cpu.hasBall && !cpu.isShooting()) resolveSteal(player, cpu);
+		}
+
+		// pick up / drop
+		if (wasPressed(KeyEvent.VK_P)) {
+			if (player.hasBall && player.action == null) {
+				player.hasBall = false;
+				ball.setLoose();
+				ball.x = player.x + (player.side == 'L' ? -45 : 45);
+				ball.y = player.y + 4;
+				ball.z = 40;
+				ball.vx = ball.vy = ball.vz = 0;
 				cpu.state = "GET_BALL";
-			}			
-			
-		
-
-			player.checkBoundsAndSlide(court.bounds, playerPrevX, playerPrevY);
-		
-			
-		
-										// CPU LOGIC (has to be saved after movements)
-
-		// 1. Save where the CPU IS, before moving
-		cpuPrevX = cpu.getX();
-		cpuPrevY = cpu.getY();
-
-		// 2. Move the CPU
-		cpu.position(ball.x, ball.y, player.getX(), player.getY());
-		
-
-		// 3. Check collision against bounds (axis-separated, lets CPU slide along walls)
-		cpu.checkBoundsAndSlide(court.bounds, cpuPrevX, cpuPrevY);
-
-		// Rebuild final cpuRect for downstream checks
-		cpuRect = new Rect(cpu.getX(), cpu.getY(), cpu.lrPlayerWidth, cpu.lrPlayerHeight);
-
-		
-		
-		cpu.attemptSteal(player, ball);
-		cpu.attemptBlock(player, ball);
-		    
-		
-
-		// 4. Pickup logic — don't pick up the ball while it's in flight
-		if (!cpu.ballInHand && !player.ballInHand && !cpu.ballInFlight && !player.ballInFlight && cpuRect.overlaps(ball.rect)) {
-			    cpu.ballInHand       = true;
-			    cpu.state            = "ROAM";
-			    cpu.timeToRoam 		 = 900 + Math.random() * 600;				// Min. 900 frames (15 seconds), Max 1500 frames (25 seconds)	
-				cpu.roamTargetSet	 = false;									// forces a new random spot next possession
-				cpu.roamSpotsTotal   = 3 + (int)(Math.random() * 4);
-				cpu.roamSpotsVisited = 0;
+			}
+			else if (canGrab(player)) {
+				giveBall(player);
+			}
 		}
-		
-		
-		
-		// getting the x and y for the players hands and then adding offsets to make sure it aligns with the hands.
-		if (cpu.ballInHand) {
-		    ball.x = cpu.getX() + 150;
-		    ball.y = cpu.getY() + 90;
-		}	
-		
-		
-		
-		/* Player and CPU collision detection with one another */
-		handlePlayerCpuCollision();
-		
-		
-		
 	}
 
-	
-	
-	
-	
-	
-	
-	private void playerAttemptSteal() {
-	    
-	    // player reaching / stealing ball from cpu	
-	    Rect cpuBodyRect = new Rect(cpu.getX(), cpu.getY(), cpu.lrPlayerWidth, cpu.lrPlayerHeight);
-	    
-	    // our countdown timer for being able to register the steal button every 3 seconds so we 
-	    // wont be able to spam the steal button.
-	    if(stealCoolDownFrames > 0) stealCoolDownFrames--;
-	    
-	    // player reaching / stealing ball from cpu	
-	    if(pressing[_M] && !mWasPressed && cpu.ballInHand && player.physics == false && stealCoolDownFrames == 0
-	            && playerRect.overlaps(cpuBodyRect)) {
-	        
-	        player.reach();
-	        stealCoolDownFrames = 180;				// 180 / 60fps = 3 seconds
-	        
-	        double roll = Math.random();
-	        
-	        // if player steals the ball
-	        if(roll < 0.2) {
-	            cpu.resetAfterLosingBall();
-	            player.ballInHand = true;
-	            cpu.state         = "DEFEND";
-	        }
-	        
-	        // if player knocks the ball loose
-	        else if(roll < 0.5) {
-	            cpu.resetAfterLosingBall();
-	            cpu.state = "GET_BALL";
-	            
-	            ball.x = (int)(cpu.getX() + (Math.random() - 0.5) * 800);  // ±400px
-	            ball.y = (int)(cpu.getY() + (Math.random() - 0.5) * 200);
-	            
-	            ball.rect = new Rect(ball.x, ball.y, 50, 50);
-	        }
-	        
-	        // if none of the above happens, opposing player keeps shooting or dribbling
-	        else {
-	            
-	        }
-	    }
-	    
-	    mWasPressed = pressing[_M];						// saving the state of M to check for future frames
-	}
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	private void checkScoring(int ballCenterX, int ballCenterY) {
-    
-    // Scoring detection — runs BEFORE rim collision so the rim bounce doesn't cancel it
-    // savedShootingX holds where the player was standing when they shot to determine 2 or 3
-    
-    // Save who shot BEFORE we reset ballInFlight in the scoring branches
-    boolean playerShot = player.ballInFlight;
-    
-    // right basket
-    if(ball.velocityY > 0 && ballCenterY > 462 && ballCenterY < 487		// if ball goes through basket
-            && ballCenterX > 1461 && ballCenterX < 1520) {
-        
-        // if behind the 3 point line (right side line is at x=1098)
-        int points = (savedShootingX < 1098) ? 3 : 2;
-        
-        // Award the shooter
-        if(playerShot) scoreBoard.addPlayerPoints(points);
-        else           scoreBoard.addCpuPoints(points);
-        
-        player.ballInFlight  = false;
-        cpu.ballInFlight     = false;
-        if (cpu.state.equals("WAIT")) cpu.state = "GET_BALL";
-        ball.velocityX        = 0;
-        ball.velocityY        = 0;
-        cpu.ballInHand 		 = true;
-        cpu.setPosition(1250, 600);
-        cpu.state 			 = "ROAM";
-        cpu.timeToRoam 		 = 900 + Math.random() * 600;			    // Min. 900 frames (15 seconds), Max 1500 frames (25 seconds)
-        cpu.roamTargetSet	 = false;									// forces a new random spot next possession
-        cpu.roamSpotsTotal   = 3 + (int)(Math.random() * 4);			// 3 - 6 spots to be visited
-        cpu.roamSpotsVisited = 0;										// reset back to 0 visited spots for next possession
-    }
-    
-    // left basket
-    if(ball.velocityY > 0 && ballCenterY > 462 && ballCenterY < 487
-            && ballCenterX > 191 && ballCenterX < 250) {
-        
-        // if behind the 3 point line (left side line is at x=612)
-        int points = (savedShootingX > 612) ? 3 : 2;
-        
-        // Award the shooter
-        if(playerShot) scoreBoard.addPlayerPoints(points);
-        else           scoreBoard.addCpuPoints(points);
 
-        player.ballInFlight = false;
-        cpu.ballInFlight    = false;				
-        ball.velocityX       = 0;
-        ball.velocityY       = 0;
-        player.ballInHand 	= true;
-        cpu.state			= "DEFEND";
-        player.setPosition(290, 600);
-        playerPrevX = 300;
-        playerPrevY = 480;
-    }
+	boolean canGrab(PlayerMovement p) {
+		return ball.state == Ball.LOOSE && !p.hasBall && !p.isShooting()
+				&& Math.abs(ball.x - p.x) < 80 && Math.abs(ball.y - p.y) < 45
+				&& ball.z < 170 + p.z;
+	}
+
+	void giveBall(PlayerMovement p) {
+		PlayerMovement other = (p == player) ? cpu : player;
+		other.hasBall = false;
+		p.hasBall = true;
+		ball.setHeld(p);
+		if (p == cpu) cpu.newPossession();
+		else hintTimer = 0;
+	}
+
+	void resolveSteal(PlayerMovement thief, PlayerMovement victim) {
+		double roll = Math.random();
+		if (roll < 0.2) {                      // clean steal
+			giveBall(thief);
+			toast("STOLEN!", thief.x, thief.y - 260, new Color(255, 210, 63), 70, 40);
+		}
+		else if (roll < 0.5) {                 // knocked loose: the ball bounces away
+			victim.hasBall = false;
+			ball.setLoose();
+			ball.x = victim.x;
+			ball.y = victim.y;
+			ball.z = 60;
+			int dir = thief.x < victim.x ? 1 : -1;
+			ball.vx = dir * Court.rand(4, 8);
+			ball.vy = Court.rand(-2.5, 2.5);
+			ball.vz = Court.rand(2, 4);
+			toast("KNOCKED LOOSE!", victim.x, victim.y - 260, Color.WHITE, 60, 32);
+		}
+		// otherwise the reach missed
+	}
+
+
+	// ================================================================= shooting
+	void launchShot(PlayerMovement shooter) {
+		if (!shooter.hasBall) {
+			if (shooter == player) shotMeter.reset();
+			return;
+		}
+		Court.Hoop hoop = (shooter == player) ? Court.RIGHT : Court.LEFT;
+		double[] hand = shooter.handPoint();
+		shooter.hasBall = false;
+
+		// the ball starts exactly where it was drawn in the hands
+		ball.state  = Ball.SHOT;
+		ball.holder = null;
+		ball.x = hand[0];
+		ball.y = shooter.y;
+		ball.z = shooter.y - hand[1];
+
+		double dx = hoop.x - ball.x;
+		double T  = Court.clamp(30 + Math.abs(dx) / 18, 36, 90);     // frames in the air
+		double vx = dx / T;
+		double vy = (hoop.floorY - ball.y) / T;
+		double vz = (hoop.rimZ - ball.z + 0.5 * Ball.GRAVITY * T * T) / T;
+
+		boolean three = hoop.isThree(shooter.x);
+		double pf = 1, jx = 0, jz = 0;
+
+		if (shooter == player) {
+			shotMeter.forceRelease();
+			if (shotMeter.isInGreenWindow()) {
+				toast("GREEN!", shooter.x, shooter.y - 300, new Color(33, 210, 74), 50, 34);
+			} else {
+				double off = shotMeter.releaseOffset();          // early < 0 < late
+				// the green window is near the end of the bar, so late misses ramp up faster;
+				// holding until the meter maxes out is a really bad shot
+				boolean late = off > 0;
+				pf = 1 + off * (late ? 0.6 : 0.22);
+				jx = Court.rand(-1, 1) * (0.35 + Math.abs(off) * (late ? 2.2 : 0.8));
+				jz = Court.rand(-0.3, 0.3);
+				if (shotMeter.shotReleaseValue >= shotMeter.shotMeterMax) {   // never let go: forced brick
+					pf = Court.rand(0.72, 0.82);                    // comes up short
+					jx = Court.rand(-0.5, 0.5);
+				}
+			}
+			shotMeter.reset();
+		} else {
+			double makeChance = three ? 0.38 : 0.5;
+			if (Math.random() >= makeChance) {
+				jx = Court.sign(Math.random() - 0.5) * Court.rand(0.45, 1.3);
+				jz = Court.rand(-0.4, 0.4);
+			}
+		}
+
+		ball.vx = vx * pf + jx;
+		ball.vy = vy;
+		ball.vz = vz * pf + jz;
+
+		Ball.Shot s = new Ball.Shot();
+		s.shooter = shooter;
+		s.hoop = hoop;
+		s.three = three;
+		ball.shot = s;
+	}
+
+
+	void updateBall() {
+		if (ball.state == Ball.HELD) {
+			ball.x = ball.holder.x;
+			ball.y = ball.holder.y;
+			ball.z = 0;
+			return;
+		}
+		double prevZ = ball.z;
+		ball.integrate();
+
+		if (ball.state == Ball.SHOT) updateShotFlight(prevZ);
+
+		if (ball.state == Ball.NET) {             // drops through the net
+			ball.vx *= 0.85;
+			ball.vy *= 0.85;
+			if (ball.z <= 0) ball.state = Ball.LOOSE;
+		}
+		if (ball.state == Ball.SHOT && ball.z <= 0) ball.state = Ball.LOOSE;   // missed, now a rebound
+		ball.bounceAndRoll();
+	}
+
+
+	void updateShotFlight(double prevZ) {
+		Ball.Shot s = ball.shot;
+		Court.Hoop h = s.hoop;
+		s.t++;
+		boolean nearDepth = Math.abs(ball.y - h.floorY) < 70;
+
+		// blocks: early in the flight, by an airborne defender
+		if (s.t < 28 && s.rimHits == 0) {
+			PlayerMovement[] defenders = { player, cpu };
+			for (PlayerMovement d : defenders) {
+				if (d == s.shooter || d.z < 15 || s.blockChecked.contains(d)) continue;
+				double handsX = d.x + (d.side == 'L' ? -15 : 15);
+				double top    = d.y - d.z - 250;
+				double bottom = d.y - d.z - 105;
+				double sy     = ball.y - ball.z;
+				if (Math.abs(ball.x - handsX) < 60 && sy > top && sy < bottom && Math.abs(ball.y - d.y) < 70) {
+					s.blockChecked.add(d);
+					if (d == cpu && Math.random() > 0.7) continue;        // CPU doesn't block everything
+					ball.setLoose();
+					ball.vx = -Court.sign(ball.vx) * Court.rand(3, 6);
+					ball.vy = Court.rand(-2, 2);
+					ball.vz = Court.rand(0, 2.5);
+					toast("BLOCKED!", d.x, d.y - d.z - 290, new Color(255, 77, 77), 70, 44);
+					return;
+				}
+			}
+		}
+
+		// rim: checked when the ball comes down through the rim's height
+		if (!s.scored && prevZ >= h.rimZ && ball.z < h.rimZ && nearDepth) {
+			double d = ball.x - h.x;
+			if (Math.abs(d) <= RIM_RADIUS - 6) {
+				scoreBasket(s);
+			}
+			else if (Math.abs(d) <= RIM_RADIUS + Ball.RADIUS && s.rimHits < 4) {
+				s.rimHits++;
+				ball.z  = h.rimZ;
+				ball.vz = Math.abs(ball.vz) * 0.45 + 1.4;
+				ball.vx = ball.vx * 0.35 + Court.sign(d) * Court.rand(1.2, 2.2);
+			}
+		}
+
+		// backboard (and the padding / stanchion behind it): the ball never goes behind the hoop
+		boolean pastBoard = h.dir > 0 ? ball.x + Ball.RADIUS > h.boardX : ball.x - Ball.RADIUS < h.boardX;
+		if (pastBoard && ball.vx * h.dir > 0) {
+			boolean hitBoard = nearDepth && ball.z > h.rimZ - 20 && ball.z < h.rimZ + 160;
+			ball.x  = h.boardX - h.dir * Ball.RADIUS;
+			ball.vx = -ball.vx * (hitBoard ? 0.45 : 0.3);
+		}
+	}
+
+
+	void scoreBasket(Ball.Shot s) {
+		s.scored = true;
+		ball.state = Ball.NET;
+		ball.vx = (s.hoop.x - ball.x) * 0.2;
+		ball.vy = 0;
+		ball.vz = -1.5;
+
+		int points = s.three ? 3 : 2;
+		boolean byPlayer = s.shooter == player;
+		if (byPlayer) scoreBoard.addPlayerPoints(points);
+		else          scoreBoard.addCpuPoints(points);
+		toast("+" + points, s.hoop.x, s.hoop.rimY - 70,
+				byPlayer ? new Color(255, 210, 63) : new Color(255, 122, 217), 80, 64);
+
+		if (scoreBoard.playerScore >= ScoreBoard.WIN_SCORE || scoreBoard.cpuScore >= ScoreBoard.WIN_SCORE) {
+			playerWon = scoreBoard.playerScore >= ScoreBoard.WIN_SCORE;
+			screen = GAME_OVER;
+			resetTimer = -1;
+			player.cancelAction();
+			cpu.cancelAction();
+			shotMeter.reset();
+			return;
+		}
+		// the other side takes the ball out
+		resetTimer = 0;
+		resetToPlayer = !byPlayer;
+	}
+
+
+	void updatePossessionReset() {
+		if (resetTimer < 0) {
+			fade = Math.max(0, fade - 0.08);
+			return;
+		}
+		resetTimer++;
+		if (resetTimer > 55) fade = Math.min(1, fade + 0.08);
+		if (resetTimer == 70) {
+			shotMeter.reset();
+			if (resetToPlayer) {
+				player.reset(420, 840, 'R');
+				cpu.reset(700, 840, 'L');
+				giveBall(player);
+			} else {
+				cpu.reset(1290, 840, 'L');
+				player.reset(1010, 840, 'R');
+				giveBall(cpu);
+			}
+			player.updatePose();
+			cpu.updatePose();
+			resetTimer = -1;
+		}
+	}
+
+
+	/**
+	 * Keeps the two players from walking through each other. Whoever walked into the
+	 * other one gets stopped (no more snapping both back to last frame, which jittered).
+	 */
+	void separatePlayers() {
+		boolean movedP = Math.hypot(player.x - player.prevX, player.y - player.prevY) > 0.1;
+		boolean movedC = Math.hypot(cpu.x - cpu.prevX, cpu.y - cpu.prevY) > 0.1;
+		double wp = 0.5;
+		if (movedP && !movedC) wp = 1;
+		else if (movedC && !movedP) wp = 0;
+
+		for (int pass = 0; pass < 2; pass++) {
+			double dx = cpu.x - player.x;
+			double dy = cpu.y - player.y;
+			double rx = 70, ry = 26;
+			double px = rx - Math.abs(dx);
+			double py = ry - Math.abs(dy);
+			if (px > 0 && py > 0) {
+				if (px / rx < py / ry) {
+					player.x -= Court.sign(dx) * px * wp;
+					cpu.x    += Court.sign(dx) * px * (1 - wp);
+				} else {
+					player.y -= Court.sign(dy) * py * wp;
+					cpu.y    += Court.sign(dy) * py * (1 - wp);
+				}
+			}
+			player.clampToFloor();
+			cpu.clampToFloor();
+			wp = 0.5;      // if a wall stopped the push, share what's left
+		}
+	}
+
+
+	void toast(String text, double x, double y, Color color, int life, int size) {
+		toasts.add(new Toast(text, x, y, color, life, size));
+	}
+
+
+	// ================================================================= render
+	@Override
+	public void render(Graphics2D g) {
+		if (screen == LOADING) {
+			g.setColor(new Color(11, 16, 32));
+			g.fillRect(0, 0, WIDTH, HEIGHT);
+			g.setFont(new Font("SansSerif", Font.BOLD, 40));
+			ScoreBoard.drawCentered(g, loadError == null ? "Loading..." : "Could not load images: " + loadError,
+					WIDTH / 2.0, HEIGHT / 2.0, Color.WHITE);
+			return;
+		}
+
+		g.drawImage(courtImage, 0, 0, null);
+		scoreBoard.draw(g);
+
+		if (screen == MENU) {
+			drawMenu(g);
+			return;
+		}
+
+		player.drawShadow(g);
+		cpu.drawShadow(g);
+		ball.drawShadow(g);
+
+		// depth sorting: whoever is closer to the camera (lower on screen) is drawn last
+		boolean ballOnFloor = ball.state == Ball.LOOSE && ball.z < 60;
+		PlayerMovement back  = player.y <= cpu.y ? player : cpu;
+		PlayerMovement front = back == player ? cpu : player;
+		if (ballOnFloor && ball.y < back.y) ball.draw(g);
+		back.draw(g, ball);
+		if (ballOnFloor && ball.y >= back.y && ball.y < front.y) ball.draw(g);
+		front.draw(g, ball);
+		if (ballOnFloor && ball.y >= front.y) ball.draw(g);
+
+		// a ball in the air is always in front
+		if (ball.state == Ball.SHOT || ball.state == Ball.NET || (ball.state == Ball.LOOSE && !ballOnFloor)) {
+			ball.draw(g);
+		}
+
+		shotMeter.draw(g, player.x, player.y - player.z - 275);
+		drawToasts(g);
+		drawHint(g);
+
+		if (fade > 0) {
+			g.setColor(new Color(5, 8, 18, (int) (255 * fade)));
+			g.fillRect(0, 0, WIDTH, HEIGHT);
+		}
+		if (screen == PAUSED)    drawPause(g);
+		if (screen == GAME_OVER) drawGameOver(g);
+	}
+
+
+	private void drawToasts(Graphics2D g) {
+		for (Toast t : toasts) {
+			double p = (double) t.t / t.life;
+			float alpha = (float) (p < 0.75 ? 1 : 1 - (p - 0.75) / 0.25);
+			g.setFont(new Font("SansSerif", Font.BOLD, t.size));
+			double y = t.y - t.t * 0.8;
+			Color shadow = new Color(0, 0, 0, (int) (190 * alpha));
+			ScoreBoard.drawCentered(g, t.text, t.x + 3, y + 3, shadow);
+			ScoreBoard.drawCentered(g, t.text, t.x, y,
+					new Color(t.color.getRed(), t.color.getGreen(), t.color.getBlue(), (int) (255 * alpha)));
+		}
+	}
+
+
+	private void drawHint(Graphics2D g) {
+		if (screen != PLAYING || resetTimer >= 0) return;
+		String text = null;
+		if (canGrab(player)) text = "Press P to pick up the ball";
+		else if (hintTimer > 0 && !player.hasBall) text = "Run to the ball with WASD (hold C to sprint)";
+		else if (player.hasBall && scoreBoard.playerScore == 0 && scoreBoard.cpuScore == 0 && !shotMeter.isChargingShot)
+			text = "Hold O to shoot, release in the green. You attack the right hoop.";
+		if (text == null) return;
+
+		g.setFont(new Font("SansSerif", Font.BOLD, 26));
+		int w = g.getFontMetrics().stringWidth(text) + 40;
+		g.setColor(new Color(8, 12, 28, 200));
+		g.fill(new RoundRectangle2D.Double(WIDTH / 2.0 - w / 2.0, 1022, w, 44, 44, 44));
+		ScoreBoard.drawCentered(g, text, WIDTH / 2.0, 1044, Color.WHITE);
+	}
+
+
+	private void drawMenu(Graphics2D g) {
+		g.setPaint(new GradientPaint(0, 0, new Color(6, 9, 22, 184), 0, HEIGHT, new Color(6, 9, 22, 230)));
+		g.fillRect(0, 0, WIDTH, HEIGHT);
+
+		Font title = new Font("SansSerif", Font.BOLD, 104);
+		g.setFont(title);
+		ScoreBoard.drawCentered(g, "2D BASKETBALL", WIDTH / 2.0 + 5, 160, new Color(18, 10, 4));
+		ScoreBoard.drawCentered(g, "2D BASKETBALL", WIDTH / 2.0, 155, new Color(255, 170, 40));
+		g.setFont(new Font("SansSerif", Font.BOLD, 30));
+		ScoreBoard.drawCentered(g, "1-on-1 against the CPU  ·  first to " + ScoreBoard.WIN_SCORE + " wins",
+				WIDTH / 2.0, 238, new Color(207, 216, 255));
+
+		// the two players on either side
+		double bob = Math.sin(frameCount / 30.0) * 3;
+		SpriteData.P1_IDLE.draw(g, 0, 2, false, 300, 760 + bob);
+		SpriteData.P2_IDLE.draw(g, 0, 2, false, WIDTH - 300, 760 - bob);
+		g.setFont(new Font("SansSerif", Font.BOLD, 26));
+		ScoreBoard.drawCentered(g, "YOU", 300, 795, new Color(255, 179, 107));
+		ScoreBoard.drawCentered(g, "CPU", WIDTH - 300, 795, new Color(255, 225, 77));
+
+		// controls card
+		double cx = WIDTH / 2.0 - 400, cy = 300, cw = 800, ch = 530;
+		g.setColor(new Color(14, 20, 42, 235));
+		g.fill(new RoundRectangle2D.Double(cx, cy, cw, ch, 52, 52));
+		g.setColor(new Color(255, 255, 255, 30));
+		g.setStroke(new BasicStroke(2));
+		g.draw(new RoundRectangle2D.Double(cx, cy, cw, ch, 52, 52));
+
+		g.setFont(new Font("SansSerif", Font.BOLD, 30));
+		ScoreBoard.drawCentered(g, "CONTROLS", WIDTH / 2.0, cy + 55, Color.WHITE);
+
+		String[][] rows = {
+			{ "W A S D",  "Move  (arrow keys work too)" },
+			{ "C + move", "Sprint (without the ball)" },
+			{ "Hold O",   "Shoot - release in the green" },
+			{ "Space",    "Jump to block a shot" },
+			{ "M",        "Reach for a steal" },
+			{ "P",        "Pick up / drop the ball" },
+			{ "Esc",      "Pause" },
+		};
+		Font keyFont  = new Font("SansSerif", Font.BOLD, 24);
+		Font descFont = new Font("SansSerif", Font.PLAIN, 25);
+		for (int i = 0; i < rows.length; i++) {
+			double y = cy + 120 + i * 56;
+			g.setFont(keyFont);
+			int kw = Math.max(64, g.getFontMetrics().stringWidth(rows[i][0]) + 30);
+			double kx = cx + 250 - kw;
+			g.setColor(new Color(38, 49, 79));
+			g.fill(new RoundRectangle2D.Double(kx, y - 21, kw, 42, 20, 20));
+			ScoreBoard.drawCentered(g, rows[i][0], kx + kw / 2.0, y, new Color(255, 210, 63));
+			g.setFont(descFont);
+			g.setColor(new Color(232, 236, 246));
+			int ty = (int) Math.round(y + (g.getFontMetrics().getAscent() - g.getFontMetrics().getDescent()) / 2.0);
+			g.drawString(rows[i][1], (int) (cx + 280), ty);
+		}
+		g.setFont(new Font("SansSerif", Font.PLAIN, 21));
+		ScoreBoard.drawCentered(g, "You attack the right hoop, the CPU attacks the left.",
+				WIDTH / 2.0, cy + ch - 28, new Color(143, 154, 181));
+
+		drawButton(g, "PLAY");
+		g.setFont(new Font("SansSerif", Font.BOLD, 22));
+		ScoreBoard.drawCentered(g, "or press ENTER", WIDTH / 2.0, 990, new Color(207, 216, 255));
+	}
+
+
+	private void drawButton(Graphics2D g, String label) {
+		double pulse = 1 + Math.sin(frameCount / 15.0) * 0.02;
+		double w = buttonW * pulse, h = buttonH * pulse;
+		double x = buttonX + buttonW / 2 - w / 2, y = buttonY + buttonH / 2 - h / 2;
+		g.setColor(new Color(255, 122, 26, 90));
+		g.fill(new RoundRectangle2D.Double(x - 6, y - 6, w + 12, h + 12, h + 12, h + 12));
+		g.setColor(new Color(255, 122, 26));
+		g.fill(new RoundRectangle2D.Double(x, y, w, h, h, h));
+		g.setFont(new Font("SansSerif", Font.BOLD, 38));
+		ScoreBoard.drawCentered(g, label, buttonX + buttonW / 2, buttonY + buttonH / 2, new Color(26, 13, 2));
+	}
+
+
+	private void drawPause(Graphics2D g) {
+		g.setColor(new Color(6, 9, 22, 180));
+		g.fillRect(0, 0, WIDTH, HEIGHT);
+		g.setFont(new Font("SansSerif", Font.BOLD, 90));
+		ScoreBoard.drawCentered(g, "PAUSED", WIDTH / 2.0, 420, Color.WHITE);
+		g.setFont(new Font("SansSerif", Font.BOLD, 30));
+		Color c = new Color(207, 216, 255);
+		ScoreBoard.drawCentered(g, "Esc / Enter - resume", WIDTH / 2.0, 530, c);
+		ScoreBoard.drawCentered(g, "R - restart", WIDTH / 2.0, 580, c);
+		ScoreBoard.drawCentered(g, "Q - main menu", WIDTH / 2.0, 630, c);
+	}
+
+
+	private void drawGameOver(Graphics2D g) {
+		g.setColor(new Color(6, 9, 22, 184));
+		g.fillRect(0, 0, WIDTH, HEIGHT);
+		g.setFont(new Font("SansSerif", Font.BOLD, 110));
+		String text = playerWon ? "YOU WIN!" : "CPU WINS";
+		ScoreBoard.drawCentered(g, text, WIDTH / 2.0 + 5, 405, Color.BLACK);
+		ScoreBoard.drawCentered(g, text, WIDTH / 2.0, 400, playerWon ? new Color(255, 210, 63) : new Color(255, 107, 240));
+		g.setFont(new Font("SansSerif", Font.BOLD, 56));
+		ScoreBoard.drawCentered(g, scoreBoard.playerScore + " - " + scoreBoard.cpuScore, WIDTH / 2.0, 530, Color.WHITE);
+		drawButton(g, "PLAY AGAIN");
+		g.setFont(new Font("SansSerif", Font.BOLD, 22));
+		ScoreBoard.drawCentered(g, "ENTER to play again  ·  Q for menu", WIDTH / 2.0, 990, new Color(207, 216, 255));
+	}
+
+
+	/** Floating text like "+3" or "BLOCKED!". */
+	static class Toast {
+		final String text;
+		final double x, y;
+		final Color color;
+		final int life, size;
+		int t;
+
+		Toast(String text, double x, double y, Color color, int life, int size) {
+			this.text = text;
+			this.x = x;
+			this.y = y;
+			this.color = color;
+			this.life = life;
+			this.size = size;
+		}
+	}
 }
-	
-	
-	
-	
-	
-	
-	private void setShotVelocity() {
-	    
-	    ball.blocked = false;			// resets at the start of a new shot
-	    
-	    
-	    // player shooting values 
-	    if (player.ballInFlight) {
-
-	        // player's shot — ball starts at hand position
-	        ball.x = player.getX() + 150;
-	        ball.y = player.getY() + 90;
-
-
-	        double greenWindowCenter = (shotMeter.greenWindowStart + shotMeter.greenWindowEnd) / 2.0;   // 86.0
-	        
-	        // basically determines the velocities of the shot
-	        double powerFactor;
-
-	        // this is the green window (between the start and end of bar)
-	        boolean inGreenWindow = (shotMeter.shotReleaseValue >= shotMeter.greenWindowStart && 
-	        							shotMeter.shotReleaseValue <= shotMeter.greenWindowEnd);
-
-	        if(inGreenWindow) {
-	            // velocity values stay the same every time, no randomness
-	            powerFactor = 1.0;
-	        } 
-	        
-	        else {
-	            // Outside green window, powerFactor velocity values are now based on the release of the shot
-	            // so it can change a lot
-	            double deviation = (shotMeter.shotReleaseValue - greenWindowCenter) / (shotMeter.shotMeterMax / 2.0);
-	                 powerFactor = 1.0 + deviation * 0.35;
-	        }
-
-	        // Shooting away from camera
-	        if(savedShootingRow == 840) {
-	            ball.velocityX = 0;						// is 0 since not shooting horizontally in this case
-	            ball.velocityY = -18 * powerFactor;
-
-	        } 
-	        
-	        // shooting toward camera
-	        else if(savedShootingRow == 560) {
-	            ball.velocityX = 0;					   // is 0 since not shooting horizontally in this case
-	            ball.velocityY = -10 * powerFactor;
-
-	        } 
-	        
-	        // shooting left or right
-	        else {
-	            
-	            int    hoopTargetX;
-	            int    hoopTargetY = 450;
-	            
-	                if(savedFacingLeft) {
-	                    hoopTargetX = 195;
-	                }
-	                
-	                else {
-	                    hoopTargetX = 1465;
-	                }
-	                
-	            // how far in distance x and y need to travel to the hoop based on the location of the player.
-	            double distanceX      = hoopTargetX - (player.getX() + 150);
-	            double distanceY      = hoopTargetY - (player.getY() + 150);
-
-	            // how many frames the ball should be in the air, based on X distance at a reference speed of 12px a frame
-	            double time    		  = Math.abs(distanceX) / 12.0;
-	            
-	            // needed to help the ball go downward when approaching the hoop
-	            double minFlightTime  = Math.sqrt(2.0 * Math.abs(distanceY) / ball.gravity) * 1.05;
-	            
-	            // if the time is too short, gets replaced by the minimum flight time needed
-	            if(time < minFlightTime) time = minFlightTime;
-
-	            // Ideal velocities that arc the ball exactly to the hoop center
-	            // ball needs to travel a X amount of distance in this amount of time
-	            double idealVX = distanceX / time;
-	            
-	            // helps pull the ball downward over time into the basket
-	            double idealVY = (distanceY - 0.5 * ball.gravity * time * time) / time;
-
-	            
-	            // jitter makes bad releases feel punishing, and random velocities added or subtracted by 75
-	            double jitter;
-	            
-	            if(inGreenWindow) {
-	                jitter = 0;
-	            }
-	            
-	            else {
-	                jitter = (Math.random() - 0.5) + 1.5;
-	            }
-
-	            // applying everything all together to get the velocities on how the ball is going to move
-	            ball.velocityX = idealVX * powerFactor + jitter;
-	            ball.velocityY = idealVY * powerFactor + jitter;
-	        }
-
-	        // resetting shot meter values
-	        shotMeter.reset();
-	    }
-	    
-	    
-	    
-	    // CPU shooting values and where to shoot
-	    else {
-	        int hoopTargetX = 195;
-	        int hoopTargetY = 450;
-	        
-	        double distanceX      = hoopTargetX - (cpu.getX() + 150);
-	        double distanceY      = hoopTargetY - (cpu.getY() + 150);
-
-	        double time    		  = Math.abs(distanceX) / 12.0;
-	        double minFlightTime  = Math.sqrt(2.0 * Math.abs(distanceY) / ball.gravity) * 1.05;
-	                
-	        if(time < minFlightTime) time = minFlightTime;
-
-	        double idealVX = distanceX / time;
-	        double idealVY = (distanceY - 0.5 * ball.gravity * time * time) / time;
-	        
-	        double powerFactor = 1.0;
-	        double jitter;
-	        
-	        
-	        // number from 0.0 to 1.0. CPU hits 40% of shots
-	        if(Math.random() > 0.6) {
-	            jitter = 0;
-	        }
-	        
-	        // 60% when it does miss, miss time it randomly.
-	        else {
-	            jitter = (Math.random() - 0.5) * 1.5;
-	        }
-	        
-	        // applying everything all together to get the velocities on how the ball is going to move
-	        ball.velocityX = idealVX * powerFactor + jitter;
-	        ball.velocityY = idealVY * powerFactor + jitter;
-	        
-	        savedShootingX = cpu.getX();    // used to detect 2pt and 3pt positions
-	    }
-	}
-	
-	
-	
-	private void handleBallPickupDrop() {
-	    
-		// if pressing P and pWasPressed becomes true
-	    if(pressing[_P] && !pWasPressed){
-	        
-	        // if the ball is NOT in anyone's hand and not in flight, and they're near it
-	        if(!player.ballInHand && !cpu.ballInHand && !player.ballInFlight && !cpu.ballInFlight
-	            && playerRect.overlaps(ball.rect)){
-		            player.ballInHand = true;				// pick up is only allowed when near the ball
-		            cpu.state         = "DEFEND";
-	        }
-	        else if(player.ballInHand) {
-	            player.ballInHand = false;						// drop ball is allowed anywhere
-	            ball.x = player.getX() + 150;					// ball lands at player's feet
-	            ball.y = player.getY() + 210;
-	        }
-	    }
-	    
-	    pWasPressed = pressing[_P];						// saving the state of P to check for future frames
-	}
-	
-	
-	
-	private void endFlightOnBoundary() {
-	    
-	    // stop flight when ball hits the floor
-	    if(ball.y >= ball.floorY) {
-	        ball.y = ball.floorY;
-	        endFlight();
-	    }
-
-	    // stop flight when ball hits the left wall
-	    if(ball.x <= ball.leftWall) {
-	        ball.x = ball.leftWall;
-	        endFlight();
-	    }
-
-	    // stop flight when ball hits the right wall
-	    else if(ball.x >= ball.rightWall) {
-	        ball.x = ball.rightWall;
-	        endFlight();
-	    }
-	}
-
-	private void endFlight() {
-	    player.ballInFlight = false;
-	    cpu.ballInFlight    = false;
-	    if (cpu.state.equals("WAIT")) cpu.state = "GET_BALL";
-	    ball.stop();
-	}
-	
-	
-	
-	
-	// Resolves overlap between the player and CPU
-	// First tries to snap both back to their last positions; if still stuck, forces a push apart
-	private void handlePlayerCpuCollision() {
-	    
-	    Rect playerRectDefense = new Rect(player.getX(), player.getY(), player.lrPlayerWidth - 150, player.lrPlayerHeight - 150);
-	    Rect cpuRectDefense    = new Rect(cpu.getX(), cpu.getY(), cpu.lrPlayerWidth - 150, cpu.lrPlayerHeight - 150);
-
-	    if(playerRectDefense.overlaps(cpuRectDefense)) {
-	        
-	        // First try setting them back to previous position
-	        cpu.setPosition(cpuPrevX, cpuPrevY);
-	        player.setPosition(playerPrevX, playerPrevY);
-	        
-	        // Rebuild rectangles to check if setting them back to previous positions
-	        playerRectDefense = new Rect(player.getX(), player.getY(), player.lrPlayerWidth - 150, player.lrPlayerHeight - 150);
-	        cpuRectDefense    = new Rect(cpu.getX(), cpu.getY(), cpu.lrPlayerWidth - 150, cpu.lrPlayerHeight - 150);
-	        
-	        // If still stuck after setting them back, force a separation push
-	        if(playerRectDefense.overlaps(cpuRectDefense)) {
-	            int push = 5; // 5px
-	            
-	            // Now checking to see which direction are cpu and player stuck with.  
-	            // Are they to the left or right of one another
-	            if(player.getX() < cpu.getX()) {
-	                player.setPosition(player.getX() - push, player.getY());
-	                cpu.setPosition(cpu.getX() + push, cpu.getY());
-	            } else {
-	                player.setPosition(player.getX() + push, player.getY());
-	                cpu.setPosition(cpu.getX() - push, cpu.getY());
-	            }
-	        }
-	    }
-	}
-	
-	
-	
-	
-	
-	// Draws the player and CPU sprites
-	private void drawPlayers(Graphics g) {
-	    player.draw(g);
-	       cpu.draw(g);
-	}
-
-
-	// Draws the ball based on current state — in-hand, in-flight, shooting, or loose
-	private void drawBall(Graphics g) {
-	    
-	    // when shooting the ball draw it at the hands
-	    if(player.isShooting) {
-	        g.drawImage(ball.image,
-	                player.getX() + handOffsetX[player.spriteSheetFrame],
-	                player.getY() + handOffsetY[player.spriteSheetFrame],
-	                70, 70, null);
-	    }
-	    
-	    else if (cpu.isShooting) {
-	        g.drawImage(ball.image,
-	            cpu.getX() + handOffsetX[cpu.spriteSheetFrame],
-	            cpu.getY() + handOffsetY[cpu.spriteSheetFrame],
-	            70, 70, null);
-	    }
-	    
-	    // when the player or cpu is moving to release the ball. (updating ball.x and ball.y happens inGameLoop()
-	    else if(player.ballInFlight || cpu.ballInFlight) {
-	        g.drawImage(ball.image, ball.x, ball.y, 70, 70, null);
-	    }
-	    
-	    // if ball is in players hand draw nothing since the sprite takes care of it
-	    else if(player.ballInHand || cpu.ballInHand) {
-	        
-	    }
-	    
-	    // if ball is not in shooting motion or in the players hand, draw it at the x and y where it gets dropped
-	    else {
-	        g.drawImage(ball.image, ball.x, ball.y, 70, 70, null);
-	    }
-	}
-
-
-	// Debug visuals — out of bounds rectangles for testing the boundaries
-	private void drawDebug(Graphics g) {
-	    
-	    for(int i = 0; i < court.bounds.length; i++) {
-	        g.setColor(Color.CYAN);
-	        court.bounds[i].draw(g);
-	    }
-	}
-	
-	
-	
-	
-	
-	
-	
-	
-	public void paint(Graphics g) {
-	    
-	    g.drawImage(courtImage, 0, 0, getWidth(), getHeight(), null);
-	    
-	    drawPlayers(g);
-	    drawBall(g);
-	    drawDebug(g);
-	    
-	    shotMeter.draw(g, player.getX(), player.getY());
-	    scoreBoard.draw(g);
-	}
-	
-
-}
- 

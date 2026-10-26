@@ -1,65 +1,137 @@
-import java.awt.*;
+import java.awt.Color;
+import java.awt.Graphics2D;
+import java.awt.geom.AffineTransform;
+import java.awt.image.BufferedImage;
+import java.io.IOException;
+import java.util.HashSet;
+import java.util.Set;
 
+/**
+ * The basketball. Like the players, it has a floor position (x, y) and a height z,
+ * so it can arc toward the rim, bounce off the rim / backboard / floor and roll.
+ */
 public class Ball {
-    
-    Image image = Toolkit.getDefaultToolkit().getImage("images/ball.png");
-    
-    int x = 815;
-    int y = 776;
-    
-    double velocityX = 0;
-    double velocityY = 0;
-    double gravity   = 0.4;
-    
-    // walls so the ball doesn't go flying off screen
-    final int floorY    = 900;
-    final int leftWall  = 80;
-    final int rightWall = 1630;
-    
-    Rect rect = new Rect(x, y, 50, 50);
-    
-    boolean blocked = false;
-    
-    
-    // Applies gravity, moves the ball, and rebuilds its rectangle, gets called once per frame during flight
-    public void update() {
-        x = x + (int)velocityX;
-        y = y + (int)velocityY;
-        velocityY = velocityY + gravity;
-        rebuildRect();
-    }
-    
-    
-    // Rebuilds the rect after a manual position change (scoring teleport, knock-loose scatter, etc.)
-    public void rebuildRect() {
-        rect = new Rect(x, y, 50, 50);
-    }
-    
-    
-    // Convenience for scoring and rim checks
-    public int getCenterX() { return x + 25; }
-    public int getCenterY() { return y + 25; }
-    
-    
-    // Stops the ball  used when scoring, hitting a wall, or any flight-ending event
-    public void stop() {
-        velocityX = 0;
-        velocityY = 0;
-    }
+
+	public static final double GRAVITY = 0.4;
+	public static final int    RADIUS  = 22;
+
+	// states
+	public static final int HELD  = 0;
+	public static final int LOOSE = 1;
+	public static final int SHOT  = 2;
+	public static final int NET   = 3;     // dropping through the net after a make
+
+	double x = 855, y = 800, z = 0;
+	double vx, vy, vz;
+	double spin;
+	int state = LOOSE;
+	PlayerMovement holder;
+	Shot shot;
+
+	private BufferedImage image;
 
 
-    // Clamps the ball to a "safe" reachable area on the court — used when a loose ball
-    // ends up out of bounds and needs to be brought back inside so players can grab it
-    public void clampToCourt() {
-        int safeLeftX  = 230;
-        int safeRightX = 1430;
-        int safeTopY   = 410;
-        int safeBotY   = 940;
+	/** Info about the shot currently in the air. */
+	static class Shot {
+		PlayerMovement shooter;
+		Court.Hoop hoop;
+		boolean three;
+		boolean scored;
+		int t;
+		int rimHits;
+		Set<PlayerMovement> blockChecked = new HashSet<PlayerMovement>();
+	}
 
-        // checking where it is at, if less than the safe zone, bring it back in
-        if(x < safeLeftX)  x = safeLeftX;
-        if(x > safeRightX) x = safeRightX;
-        if(y < safeTopY)   y = safeTopY;
-        if(y > safeBotY)   y = safeBotY;
-    }
+
+	public void load() throws IOException {
+		BufferedImage raw = SpriteSheet.loadImage("ball.png");
+		// crop the empty border so the ball fills its 44px circle
+		int minX = raw.getWidth(), minY = raw.getHeight(), maxX = 0, maxY = 0;
+		for (int py = 0; py < raw.getHeight(); py += 2) {
+			for (int px = 0; px < raw.getWidth(); px += 2) {
+				if ((raw.getRGB(px, py) >>> 24) > 40) {
+					if (px < minX) minX = px;
+					if (py < minY) minY = py;
+					if (px > maxX) maxX = px;
+					if (py > maxY) maxY = py;
+				}
+			}
+		}
+		BufferedImage cropped = raw.getSubimage(minX, minY, maxX - minX + 1, maxY - minY + 1);
+		image = SpriteSheet.resize(cropped, RADIUS * 2, RADIUS * 2);
+	}
+
+
+	public void setHeld(PlayerMovement p) {
+		state = HELD;
+		holder = p;
+		shot = null;
+		vx = vy = vz = 0;
+	}
+
+	public void setLoose() {
+		state = LOOSE;
+		holder = null;
+	}
+
+
+	/** Moves a loose / bouncing ball. Shot flight is handled by Game (needs the players). */
+	public void integrate() {
+		x += vx;
+		y += vy;
+		z += vz;
+		vz -= GRAVITY;
+		spin += vx * 0.03;
+	}
+
+	public void bounceAndRoll() {
+		if (z <= 0) {
+			z = 0;
+			if (vz < -1.6) {          // bounce
+				vz = -vz * 0.55;
+				vx *= 0.85;
+				vy *= 0.85;
+			} else {
+				vz = 0;
+			}
+		}
+		if (state == LOOSE) {
+			if (z == 0) {             // rolling friction
+				vx *= 0.93;
+				vy *= 0.93;
+			}
+			if (Math.abs(vx) < 0.05) vx = 0;
+			if (Math.abs(vy) < 0.05) vy = 0;
+
+			// keep loose balls on the floor where the players can reach them
+			double ny = Court.clampY(y, 10);
+			double nx = Court.clampX(x, ny, 10);
+			if (nx != x) vx = -vx * 0.5;
+			if (ny != y) vy = -vy * 0.5;
+			x = nx;
+			y = ny;
+		}
+	}
+
+
+	public void drawShadow(Graphics2D g) {
+		if (state == HELD) return;
+		double s = Math.max(0.35, 1 - z / 400);
+		g.setColor(new Color(0, 0, 0, (int) (255 * 0.3 * s)));
+		int w = (int) (40 * s), h = (int) (14 * s);
+		g.fillOval((int) (x - w / 2), (int) (y - h / 2), w, h);
+	}
+
+	/** Draws the ball centered on (cx, cy). */
+	public void drawAt(Graphics2D g, double cx, double cy, double rotation) {
+		AffineTransform old = g.getTransform();
+		g.translate(cx, cy);
+		if (rotation != 0) g.rotate(rotation);
+		g.drawImage(image, -RADIUS, -RADIUS, null);
+		g.setTransform(old);
+	}
+
+	public void draw(Graphics2D g) {
+		drawAt(g, x, y - z - RADIUS, spin);
+	}
 }

@@ -1,145 +1,107 @@
-import java.awt.*;
+import java.awt.BasicStroke;
+import java.awt.Color;
+import java.awt.Graphics2D;
 
+/**
+ * Shot meter: hold O to fill the bar, let go inside the green window for a perfect shot.
+ * Releasing early makes the shot fall short, late makes it go long.
+ */
 public class ShotMeter {
-	
-	
-	// variables needed for shot meter implementation. *Used help from ai to create a shot meter*
-	boolean   isChargingShot   = false;  // if player is "loading" up into a jumpshot
-	boolean   shotReleased     = false;  // keeping track of if player let go of ball
-	int       shotMeterValue   = 0;		 // tracks how full the bar is every frame
-	int       shotReleaseValue = -1; 	 // is the final value of the shot meter upon release.
-	final int shotMeterMax     = 100;	 // max value of shot meter, if it surpasses this max, then its a very later, and automatically shoots
-	final int greenWindowStart = 80;     // starts at 80% of bar
-	final int greenWindowEnd   = 92;     // ends at 92% of bar
-	
-	boolean oWasPressed = false;
-	
-	
-	// Called every frame from Game's inGameLoop — handles all the per-frame meter state
-	public void update(boolean pressingO, PlayerMovement player) {
-		
-		// Shooting mechanics
 
-		// if the player was going for a shot and lost the ball, reset everything
-		if(isChargingShot && !player.ballInHand && !player.isShooting && !player.ballInFlight) {
-			isChargingShot   = false;
-			shotReleased     = false;
-			shotReleaseValue = -1;
-			shotMeterValue   = 0;
-		}
+	boolean   isChargingShot   = false;  // player is "loading" up a jump shot
+	boolean   shotReleased     = false;  // player let go of O
+	int       shotMeterValue   = 0;      // how full the bar is
+	int       shotReleaseValue = -1;     // value of the bar when O was released
+	final int shotMeterMax     = 100;    // reaching this forces a (bad) release
+	final int greenWindowStart = 80;
+	final int greenWindowEnd   = 92;
 
-		// Detect O key RELEASE — must happen before updating oWasPressed
-		if(isChargingShot && !pressingO && oWasPressed && !shotReleased) {
+
+	public void start() {
+		isChargingShot   = true;
+		shotReleased     = false;
+		shotMeterValue   = 0;
+		shotReleaseValue = -1;
+	}
+
+	public void reset() {
+		isChargingShot   = false;
+		shotReleased     = false;
+		shotMeterValue   = 0;
+		shotReleaseValue = -1;
+	}
+
+
+	/** Called every frame with whether O is held. */
+	public void update(boolean holdingShoot) {
+		if (!isChargingShot || shotReleased) return;
+
+		if (!holdingShoot) {
 			shotReleased     = true;
 			shotReleaseValue = shotMeterValue;
+			return;
 		}
 
-		// Start shot on first press of O (hold to charge)
-		if(pressingO && !oWasPressed && player.ballInHand && !isChargingShot) {
-
-			if(player.lastDribblingSpriteSheetRow       == 840)      player.shootingUP();
-			else if (player.lastDribblingSpriteSheetRow == 560)		 player.shootingDN();
-			else if (player.facingLeft) 							 player.shootingLT();
-			else 													 player.shootingRT();
-
-			isChargingShot   = true;
-			shotMeterValue   = 0;
-			shotReleased     = false;
-			shotReleaseValue = -1;
-		}
-		oWasPressed = pressingO;
-
-		// Fills meter 2 units per frame while charging (~50 frames to full at 60fps)
-		if(isChargingShot && !shotReleased && shotMeterValue < shotMeterMax) {
-			shotMeterValue += 2;
-			
-			// if held on for too long (end of meter), it can no longer surpass it, so meterValue = meterMax
-			if(shotMeterValue > shotMeterMax) shotMeterValue = shotMeterMax;
-		}
-
-		// if the player held on for too long and never released and shotMeterValue >= shotMeterMax
-		// automatically shoots the ball and its a horrible release.
-		if(isChargingShot && shotMeterValue >= shotMeterMax && !shotReleased) {
+		// fills 2 units per frame (~50 frames to full)
+		shotMeterValue = Math.min(shotMeterMax, shotMeterValue + 2);
+		if (shotMeterValue >= shotMeterMax) {
 			shotReleased     = true;
 			shotReleaseValue = shotMeterMax;
 		}
 	}
-	
-	
-	
-	
-	// Returns true if the player released the meter in the green window
-	// this is the green window (between the start and end of bar)
+
+	/** Makes sure a release value exists (used at the moment the ball leaves the hands). */
+	public void forceRelease() {
+		if (!shotReleased) {
+			shotReleased     = true;
+			shotReleaseValue = shotMeterValue;
+		}
+	}
+
 	public boolean isInGreenWindow() {
 		return shotReleaseValue >= greenWindowStart && shotReleaseValue <= greenWindowEnd;
 	}
-	
-	public boolean wasReleased() {
-        return shotReleased;
-    }
-    
-    public int getReleaseValue() {
-        return shotReleaseValue;
-    }
-    
-    public boolean isCharging() {
-        return isChargingShot;
-    }
-    
-    public void reset() {
-        isChargingShot   = false;
-        shotReleased     = false;
-        shotReleaseValue = -1;
-        shotMeterValue   = 0;
-    }
-    
-    
-    public void draw(Graphics g, int playerX, int playerY) {
-        
-    			if(isChargingShot) {
-    				int meterX = playerX;
-    				int meterY = playerY - 55;
-    				int meterW = 100;
-    				int meterH = 14;
 
-    				// calculations for where the green window is
-    				int greenWindowStarttPx = meterX + (int)((double)greenWindowStart / shotMeterMax * meterW);
-    				int greenWindowEndPx    = meterX + (int)((double)greenWindowEnd / shotMeterMax * meterW);
-    				
-    				// filling in the white part of the meter
-    				g.setColor(Color.WHITE);
-    				g.fillRect(meterX, meterY, greenWindowStarttPx - meterX, meterH);
+	/** -1 (very early) .. 0 (perfect) .. +0.3 (very late). */
+	public double releaseOffset() {
+		double center = (greenWindowStart + greenWindowEnd) / 2.0;
+		return (shotReleaseValue - center) / (shotMeterMax / 2.0);
+	}
 
-    				// Green window zone
-    				g.setColor(Color.GREEN);
-    				g.fillRect(greenWindowStarttPx, meterY, greenWindowEndPx - greenWindowStarttPx, meterH);  	// calc for green window
 
-    				// orange part of the meter
-    				g.setColor(new Color(255, 140, 0));
-    				g.fillRect(greenWindowEndPx, meterY, (meterX + meterW) - greenWindowEndPx, meterH);			// calc for orange part
+	public void draw(Graphics2D g, double centerX, double topY) {
+		if (!isChargingShot) return;
 
-    				// Moving yellow line in shot meter
-    				// starts at the meters beginning, clamps the value from 0 to 100, then converts it to 0.0 to 1.0, 
-    				// then meterW(100) sets it to a int, which will be the pixels
-    				int fillX = meterX + (int)((double)Math.min(shotMeterValue, shotMeterMax) / shotMeterMax * meterW);
-    				g.setColor(Color.YELLOW);
-    				
-    				// shifts the rectangle 2px left so its centered, meterY draws it 3px above the bars top edge,
-    				// 5 is for the line to be 5px wide, and meter + 6 is for the line to be 3px out on each side to be able
-    				// to see it poke out.
-    				g.fillRect(fillX - 2, meterY - 3, 5, meterH + 6);
+		int meterW = 110, meterH = 14;
+		int meterX = (int) Math.round(centerX - meterW / 2.0);
+		int meterY = (int) Math.round(topY);
+		int greenStartPx = meterX + (int) ((double) greenWindowStart / shotMeterMax * meterW);
+		int greenEndPx   = meterX + (int) ((double) greenWindowEnd / shotMeterMax * meterW);
 
-    				// Cyan marker is to show exactly where the player let go after release
-    				if(shotReleased && shotReleaseValue >= 0) {
-    					int releaseX = meterX + (int)((double)shotReleaseValue / shotMeterMax * meterW);
-    					g.setColor(Color.CYAN);
-    					g.fillRect(releaseX - 2, meterY - 3, 5, meterH + 6);
-    				}
+		g.setColor(new Color(0, 0, 0, 140));
+		g.fillRect(meterX - 4, meterY - 7, meterW + 8, meterH + 14);
 
-    				// Outline
-    				g.setColor(Color.BLACK);
-    				g.drawRect(meterX, meterY, meterW, meterH);
-    			}
-    }
-	
+		g.setColor(Color.WHITE);
+		g.fillRect(meterX, meterY, greenStartPx - meterX, meterH);
+		g.setColor(new Color(33, 210, 74));
+		g.fillRect(greenStartPx, meterY, greenEndPx - greenStartPx, meterH);
+		g.setColor(new Color(255, 140, 0));
+		g.fillRect(greenEndPx, meterY, meterX + meterW - greenEndPx, meterH);
+
+		// moving yellow line
+		int fillX = meterX + (int) ((double) shotMeterValue / shotMeterMax * meterW);
+		g.setColor(new Color(255, 230, 0));
+		g.fillRect(fillX - 2, meterY - 4, 5, meterH + 8);
+
+		// cyan marker where the player let go
+		if (shotReleased && shotReleaseValue >= 0) {
+			int releaseX = meterX + (int) ((double) shotReleaseValue / shotMeterMax * meterW);
+			g.setColor(Color.CYAN);
+			g.fillRect(releaseX - 2, meterY - 4, 5, meterH + 8);
+		}
+
+		g.setColor(Color.BLACK);
+		g.setStroke(new BasicStroke(2));
+		g.drawRect(meterX, meterY, meterW, meterH);
+	}
 }
